@@ -34,7 +34,7 @@ Raspberry Pi hardware monitoring tool for tracking CPU/GPU temperature, voltage 
 
 ## Requirements
 
-- Raspberry Pi (tested on Pi 4, Pi 5)
+- Raspberry Pi (tested on Pi 4)
 - Python 3.11+
 - `vcgencmd` (pre-installed on Raspberry Pi OS)
 

@@ -7,10 +7,28 @@ from vcgencmd and /sys filesystem on Raspberry Pi devices.
 
 import os
 import re
+import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+
+
+def _find_vcgencmd() -> str:
+    """Find vcgencmd binary in PATH or common locations.
+
+    Returns:
+        Path to vcgencmd binary, or 'vcgencmd' as fallback.
+    """
+    # Check PATH first
+    path = shutil.which("vcgencmd")
+    if path:
+        return path
+    # Check common locations
+    for loc in ["/usr/bin/vcgencmd", "/opt/vc/bin/vcgencmd"]:
+        if os.path.exists(loc):
+            return loc
+    return "vcgencmd"
 
 
 @dataclass
@@ -49,16 +67,16 @@ class HardwareReader:
 
     def __init__(
         self,
-        vcgencmd_path: str = "/opt/vc/bin/vcgencmd",
+        vcgencmd_path: Optional[str] = None,
         thermal_zone: str = "/sys/class/thermal/thermal_zone0/temp",
     ) -> None:
         """Initialize hardware reader.
 
         Args:
-            vcgencmd_path: Path to vcgencmd binary.
+            vcgencmd_path: Path to vcgencmd binary (auto-detected if None).
             thermal_zone: Path to thermal zone temperature file.
         """
-        self.vcgencmd_path = vcgencmd_path
+        self.vcgencmd_path = vcgencmd_path or _find_vcgencmd()
         self.thermal_zone = Path(thermal_zone)
 
     def _run_vcgencmd(self, command: str) -> Optional[str]:
