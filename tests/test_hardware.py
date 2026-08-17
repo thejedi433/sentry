@@ -42,7 +42,8 @@ class TestHardwareReaderInit:
     def test_default_paths(self) -> None:
         """Test default paths are set correctly."""
         reader = HardwareReader()
-        assert reader.vcgencmd_path == "/opt/vc/bin/vcgencmd"
+        # vcgencmd path is now auto-detected via _find_vcgencmd()
+        assert reader.vcgencmd_path is not None
         assert reader.thermal_zone == Path("/sys/class/thermal/thermal_zone0/temp")
 
     def test_custom_paths(self) -> None:
