@@ -137,6 +137,59 @@ def alerts(limit: int, clear: bool) -> None:
 
 
 @main.command()
+@click.option("--limit", "-l", default=10, help="Number of readings to show")
+@click.option("--minutes", "-m", type=int, help="Only show readings from last N minutes")
+def history(limit: int, minutes: Optional[int]) -> None:
+    """Show historical readings.
+
+    Displays recent hardware metrics stored in the database.
+    """
+    db = Database()
+
+    readings = db.get_recent_readings(limit=limit, minutes=minutes)
+
+    if not readings:
+        click.echo("No historical readings found.")
+        return
+
+    click.echo(f"=== Historical Readings (last {len(readings)}) ===")
+    for reading in readings:
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(reading.timestamp))
+        click.echo(f"\n{timestamp}")
+        click.echo(f"  CPU: {reading.cpu_temp:.1f}°C  GPU: {reading.gpu_temp:.1f}°C")
+        click.echo(f"  ARM: {reading.arm_voltage:.2f}V  Core: {reading.core_voltage:.2f}V")
+        click.echo(f"  Status: {reading.throttle_status}")
+
+
+@main.command()
+@click.option("--minutes", "-m", default=60, help="Time window in minutes")
+def stats(minutes: int) -> None:
+    """Show statistics for recent readings.
+
+    Displays min/max/avg for each metric over the specified time window.
+    """
+    db = Database()
+
+    stats_data = db.get_stats(minutes=minutes)
+
+    click.echo(f"=== Statistics (last {minutes} minutes) ===")
+
+    for metric_name, values in stats_data.items():
+        if values["min"] is None:
+            click.echo(f"\n{metric_name}: No data available")
+        else:
+            unit = "°C" if "temp" in metric_name else "V"
+            precision = ".1f" if "temp" in metric_name else ".2f"
+            click.echo(f"\n{metric_name}:")
+            click.echo(f"  Min: {values['min']:{precision}}{unit}")
+            click.echo(f"  Max: {values['max']:{precision}}{unit}")
+            click.echo(f"  Avg: {values['avg']:{precision}}{unit}")
+
+    total = db.count_readings()
+    click.echo(f"\nTotal readings in database: {total}")
+
+
+@main.command()
 @click.option("--cpu-temp", type=float, help="CPU temperature threshold (°C)")
 @click.option("--gpu-temp", type=float, help="GPU temperature threshold (°C)")
 @click.option("--arm-voltage", type=float, help="Minimum ARM voltage (V)")
