@@ -20,11 +20,13 @@ class TestHistoryCommand:
     @patch("sentry.cli.Database")
     def test_history_empty_db(self, mock_db: MagicMock) -> None:
         """Test history command with empty database."""
-        mock_db.return_value.get_recent_readings.return_value = []
-
+        mock_instance = MagicMock()
+        mock_db.return_value.__enter__.return_value = mock_instance
+        mock_instance.get_recent_readings.return_value = []
+        
         runner = CliRunner()
         result = runner.invoke(main, ["history"])
-
+        
         assert result.exit_code == 0
         assert "No historical readings found" in result.output
 
@@ -40,7 +42,9 @@ class TestHistoryCommand:
             throttle_status="normal",
             timestamp=time.time(),
         )
-        mock_db.return_value.get_recent_readings.return_value = [metrics]
+        mock_instance = MagicMock()
+        mock_db.return_value.__enter__.return_value = mock_instance
+        mock_instance.get_recent_readings.return_value = [metrics]
 
         runner = CliRunner()
         result = runner.invoke(main, ["history"])
@@ -54,28 +58,32 @@ class TestHistoryCommand:
     @patch("sentry.cli.Database")
     def test_history_with_limit(self, mock_db: MagicMock) -> None:
         """Test history command with limit parameter."""
-        mock_db.return_value.get_recent_readings.return_value = []
+        mock_instance = MagicMock()
+        mock_db.return_value.__enter__.return_value = mock_instance
+        mock_instance.get_recent_readings.return_value = []
 
         runner = CliRunner()
         result = runner.invoke(main, ["history", "--limit", "5"])
 
         assert result.exit_code == 0
         # Verify get_recent_readings was called with limit=5
-        mock_db.return_value.get_recent_readings.assert_called_once_with(
+        mock_instance.get_recent_readings.assert_called_once_with(
             limit=5, minutes=None
         )
 
     @patch("sentry.cli.Database")
     def test_history_with_minutes(self, mock_db: MagicMock) -> None:
         """Test history command with minutes parameter."""
-        mock_db.return_value.get_recent_readings.return_value = []
+        mock_instance = MagicMock()
+        mock_db.return_value.__enter__.return_value = mock_instance
+        mock_instance.get_recent_readings.return_value = []
 
         runner = CliRunner()
         result = runner.invoke(main, ["history", "--minutes", "30"])
 
         assert result.exit_code == 0
         # Verify get_recent_readings was called with minutes=30
-        mock_db.return_value.get_recent_readings.assert_called_once_with(
+        mock_instance.get_recent_readings.assert_called_once_with(
             limit=10, minutes=30
         )
 
@@ -92,8 +100,10 @@ class TestStatsCommand:
             "arm_voltage": {"min": None, "max": None, "avg": None},
             "core_voltage": {"min": None, "max": None, "avg": None},
         }
-        mock_db.return_value.get_stats.return_value = mock_stats
-        mock_db.return_value.count_readings.return_value = 0
+        mock_instance = MagicMock()
+        mock_db.return_value.__enter__.return_value = mock_instance
+        mock_instance.get_stats.return_value = mock_stats
+        mock_instance.count_readings.return_value = 0
 
         runner = CliRunner()
         result = runner.invoke(main, ["stats"])
@@ -112,8 +122,10 @@ class TestStatsCommand:
             "arm_voltage": {"min": 1.15, "max": 1.25, "avg": 1.2},
             "core_voltage": {"min": 1.18, "max": 1.22, "avg": 1.2},
         }
-        mock_db.return_value.get_stats.return_value = mock_stats
-        mock_db.return_value.count_readings.return_value = 10
+        mock_instance = MagicMock()
+        mock_db.return_value.__enter__.return_value = mock_instance
+        mock_instance.get_stats.return_value = mock_stats
+        mock_instance.count_readings.return_value = 10
 
         runner = CliRunner()
         result = runner.invoke(main, ["stats"])
@@ -137,13 +149,15 @@ class TestStatsCommand:
             "arm_voltage": {"min": 1.15, "max": 1.25, "avg": 1.2},
             "core_voltage": {"min": 1.18, "max": 1.22, "avg": 1.2},
         }
-        mock_db.return_value.get_stats.return_value = mock_stats
-        mock_db.return_value.count_readings.return_value = 5
+        mock_instance = MagicMock()
+        mock_db.return_value.__enter__.return_value = mock_instance
+        mock_instance.get_stats.return_value = mock_stats
+        mock_instance.count_readings.return_value = 5
 
         runner = CliRunner()
         result = runner.invoke(main, ["stats", "--minutes", "1440"])
 
         assert result.exit_code == 0
         # Verify get_stats was called with minutes=1440
-        mock_db.return_value.get_stats.assert_called_once_with(minutes=1440)
+        mock_instance.get_stats.assert_called_once_with(minutes=1440)
         assert "last 1440 minutes" in result.output

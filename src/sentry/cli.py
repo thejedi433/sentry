@@ -48,8 +48,8 @@ def status() -> None:
     click.echo(f"Timestamp:        {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(metrics.timestamp))}")
 
     # Store reading
-    db = Database()
-    db.store_reading(metrics)
+    with Database() as db:
+        db.store_reading(metrics)
 
 
 @main.command()
@@ -61,50 +61,50 @@ def monitor(interval: int) -> None:
     Press Ctrl+C to exit.
     """
     reader = HardwareReader()
-    db = Database()
 
     click.echo(f"Starting continuous monitoring (interval: {interval}s)")
     click.echo("Press Ctrl+C to exit\n")
 
     try:
-        while True:
-            # Clear screen and move cursor to top-left
-            click.clear()
+        with Database() as db:
+            while True:
+                # Clear screen and move cursor to top-left
+                click.clear()
 
-            try:
-                metrics = reader.get_all_metrics()
-            except OSError:
-                click.echo("Error: Unable to read hardware metrics")
-                click.echo("Note: sentry is designed for Raspberry Pi devices.")
+                try:
+                    metrics = reader.get_all_metrics()
+                except OSError:
+                    click.echo("Error: Unable to read hardware metrics")
+                    click.echo("Note: sentry is designed for Raspberry Pi devices.")
+                    time.sleep(interval)
+                    continue
+
+                # Store reading
+                db.store_reading(metrics)
+
+                # Check for alerts
+                config = Config.load()
+                alert_mgr = AlertManager(config)
+                alerts = alert_mgr.check_thresholds(metrics)
+
+                # Display metrics
+                click.echo("=== Sentry Monitor ===")
+                click.echo(f"CPU Temperature:  {metrics.cpu_temp:.1f}°C")
+                click.echo(f"GPU Temperature:  {metrics.gpu_temp:.1f}°C")
+                click.echo(f"ARM Voltage:      {metrics.arm_voltage:.2f}V")
+                click.echo(f"Core Voltage:     {metrics.core_voltage:.2f}V")
+                click.echo(f"Throttled:        {metrics.throttle_status}")
+                click.echo(f"Last update:      {time.strftime('%H:%M:%S')}")
+                click.echo()
+
+                if alerts:
+                    click.echo(click.style("⚠ ALERTS:", fg="red"))
+                    for alert in alerts:
+                        click.echo(click.style(f"  • {alert}", fg="red"))
+                else:
+                    click.echo(click.style("✓ All metrics normal", fg="green"))
+
                 time.sleep(interval)
-                continue
-
-            # Store reading
-            db.store_reading(metrics)
-
-            # Check for alerts
-            config = Config.load()
-            alert_mgr = AlertManager(config)
-            alerts = alert_mgr.check_thresholds(metrics)
-
-            # Display metrics
-            click.echo("=== Sentry Monitor ===")
-            click.echo(f"CPU Temperature:  {metrics.cpu_temp:.1f}°C")
-            click.echo(f"GPU Temperature:  {metrics.gpu_temp:.1f}°C")
-            click.echo(f"ARM Voltage:      {metrics.arm_voltage:.2f}V")
-            click.echo(f"Core Voltage:     {metrics.core_voltage:.2f}V")
-            click.echo(f"Throttled:        {metrics.throttle_status}")
-            click.echo(f"Last update:      {time.strftime('%H:%M:%S')}")
-            click.echo()
-
-            if alerts:
-                click.echo(click.style("⚠ ALERTS:", fg="red"))
-                for alert in alerts:
-                    click.echo(click.style(f"  • {alert}", fg="red"))
-            else:
-                click.echo(click.style("✓ All metrics normal", fg="green"))
-
-            time.sleep(interval)
 
     except KeyboardInterrupt:
         click.echo("\nMonitoring stopped.")
@@ -144,9 +144,8 @@ def history(limit: int, minutes: Optional[int]) -> None:
 
     Displays recent hardware metrics stored in the database.
     """
-    db = Database()
-
-    readings = db.get_recent_readings(limit=limit, minutes=minutes)
+    with Database() as db:
+        readings = db.get_recent_readings(limit=limit, minutes=minutes)
 
     if not readings:
         click.echo("No historical readings found.")
@@ -168,9 +167,9 @@ def stats(minutes: int) -> None:
 
     Displays min/max/avg for each metric over the specified time window.
     """
-    db = Database()
-
-    stats_data = db.get_stats(minutes=minutes)
+    with Database() as db:
+        stats_data = db.get_stats(minutes=minutes)
+        total = db.count_readings()
 
     click.echo(f"=== Statistics (last {minutes} minutes) ===")
 
@@ -185,7 +184,6 @@ def stats(minutes: int) -> None:
             click.echo(f"  Max: {values['max']:{precision}}{unit}")
             click.echo(f"  Avg: {values['avg']:{precision}}{unit}")
 
-    total = db.count_readings()
     click.echo(f"\nTotal readings in database: {total}")
 
 

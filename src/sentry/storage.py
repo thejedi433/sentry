@@ -8,7 +8,7 @@ Stores timestamped readings in a local database at
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from sentry.hardware import HardwareMetrics
 
@@ -31,6 +31,26 @@ class Database:
             db_path = Path.home() / ".local" / "share" / "sentry" / "history.db"
         self.db_path = db_path
         self._init_db()
+
+    def __enter__(self) -> "Database":
+        """Enter context manager."""
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        """Exit context manager and close database."""
+        self.close()
+
+    def close(self) -> None:
+        """Close the database connection.
+
+        This is a no-op for this implementation since connections are
+        opened and closed per-operation, but provides a clean API for
+        resource management and context manager support.
+        """
+        # Connections are managed per-operation with `with` statements,
+        # so this is intentionally a no-op. It exists to provide a
+        # consistent API and context manager support.
+        pass
 
     def _init_db(self) -> None:
         """Initialize database schema."""
