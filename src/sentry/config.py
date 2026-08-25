@@ -12,8 +12,8 @@ from typing import Optional
 
 try:
     import tomllib
-except ImportError:
-    import tomli as tomllib  # type: ignore[no-redef]
+except ImportError:  # pragma: no cover
+    import tomli as tomllib  # type: ignore[no-redef]  # pragma: no cover
 
 
 @dataclass

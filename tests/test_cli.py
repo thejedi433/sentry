@@ -131,6 +131,30 @@ class TestCliMonitor:
 
         assert "Error" in result.output or "Unable to read" in result.output
 
+    @patch("sentry.cli.time.sleep")
+    @patch("sentry.cli.HardwareReader")
+    @patch("sentry.cli.Database")
+    def test_monitor_hardware_error_continues_loop(
+        self, mock_db: MagicMock, mock_reader: MagicMock, mock_sleep: MagicMock
+    ) -> None:
+        """Test monitor command continues loop after hardware error (covers continue statement)."""
+        mock_reader.return_value.get_all_metrics.side_effect = OSError("no hardware")
+        
+        # First sleep succeeds (allows continue to execute), second raises KeyboardInterrupt
+        call_count = [0]
+        def sleep_side_effect(duration):
+            call_count[0] += 1
+            if call_count[0] >= 2:
+                raise KeyboardInterrupt()
+        mock_sleep.side_effect = sleep_side_effect
+        
+        runner = CliRunner()
+        result = runner.invoke(main, ["monitor", "--interval", "1"])
+
+        assert "Error: Unable to read hardware metrics" in result.output
+        # Loop should have executed twice: first iteration continues, second gets KeyboardInterrupt
+        assert call_count[0] >= 2
+
 
 class TestCliAlerts:
     """Test alerts command."""

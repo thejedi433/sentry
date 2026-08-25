@@ -260,5 +260,5 @@ def config(
         click.echo(f"Config file: {cfg.config_path}")
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     main()
