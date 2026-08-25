@@ -75,9 +75,20 @@ Press `Ctrl+C` to exit monitoring mode.
 ### View alerts
 
 ```bash
-sentry alert              # Show recent alerts
-sentry alert --limit 50   # Show last 50 alerts
-sentry alert --clear      # Clear alerts log
+sentry alerts              # Show recent alerts
+sentry alerts --limit 50   # Show last 50 alerts
+sentry alerts --clear      # Clear alerts log
+```
+
+### View history and statistics
+
+```bash
+sentry history                  # Show last 10 readings
+sentry history --limit 20       # Show last 20 readings
+sentry history --minutes 30     # Show readings from last 30 minutes
+
+sentry stats                    # Show min/max/avg for last hour
+sentry stats --minutes 1440     # Show stats for last 24 hours
 ```
 
 ### Manage configuration

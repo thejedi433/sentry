@@ -36,6 +36,36 @@ class TestHardwareMetrics:
         assert metrics.throttle_status == "normal"
 
 
+class TestFindVcgencmd:
+    """Test _find_vcgencmd helper."""
+
+    def test_find_vcgencmd_fallback(self) -> None:
+        """Test _find_vcgencmd returns 'vcgencmd' as fallback when not found anywhere."""
+        from sentry.hardware import _find_vcgencmd
+
+        with patch("shutil.which", return_value=None):
+            with patch("os.path.exists", return_value=False):
+                assert _find_vcgencmd() == "vcgencmd"
+
+    def test_find_vcgencmd_in_path(self) -> None:
+        """Test _find_vcgencmd finds binary in PATH."""
+        from sentry.hardware import _find_vcgencmd
+
+        with patch("shutil.which", return_value="/usr/bin/vcgencmd"):
+            assert _find_vcgencmd() == "/usr/bin/vcgencmd"
+
+    def test_find_vcgencmd_in_common_location(self) -> None:
+        """Test _find_vcgencmd finds binary in common location."""
+        from sentry.hardware import _find_vcgencmd
+
+        def side_effect(loc):
+            return loc == "/usr/bin/vcgencmd"
+
+        with patch("shutil.which", return_value=None):
+            with patch("os.path.exists", side_effect=side_effect):
+                assert _find_vcgencmd() == "/usr/bin/vcgencmd"
+
+
 class TestHardwareReaderInit:
     """Test HardwareReader initialization."""
 
@@ -288,6 +318,110 @@ class TestReadThermalZone:
         temp = reader._read_thermal_zone()
 
         assert temp is None
+
+
+class TestGetters:
+    """Test individual getter methods."""
+
+    @patch.object(HardwareReader, "_read_thermal_zone")
+    def test_get_cpu_temp(self, mock_read: MagicMock) -> None:
+        """Test get_cpu_temp returns thermal zone reading."""
+        mock_read.return_value = 45.0
+        reader = HardwareReader()
+        assert reader.get_cpu_temp() == 45.0
+
+    @patch.object(HardwareReader, "_read_thermal_zone")
+    def test_get_cpu_temp_none(self, mock_read: MagicMock) -> None:
+        """Test get_cpu_temp returns None when unavailable."""
+        mock_read.return_value = None
+        reader = HardwareReader()
+        assert reader.get_cpu_temp() is None
+
+    @patch.object(HardwareReader, "_run_vcgencmd")
+    @patch.object(HardwareReader, "_parse_vcgencmd_temp")
+    def test_get_gpu_temp(self, mock_parse: MagicMock, mock_run: MagicMock) -> None:
+        """Test get_gpu_temp."""
+        mock_run.return_value = "temp=50.2'C"
+        mock_parse.return_value = 50.2
+        reader = HardwareReader()
+        result = reader.get_gpu_temp()
+        mock_run.assert_called_with("measure_temp")
+        assert result == 50.2
+
+    @patch.object(HardwareReader, "_run_vcgencmd")
+    @patch.object(HardwareReader, "_parse_vcgencmd_voltage")
+    def test_get_arm_voltage(self, mock_parse: MagicMock, mock_run: MagicMock) -> None:
+        """Test get_arm_voltage."""
+        mock_run.return_value = "volt=1.2000V"
+        mock_parse.return_value = 1.2
+        reader = HardwareReader()
+        result = reader.get_arm_voltage()
+        mock_run.assert_called_with("measure_volts ARM")
+        assert result == 1.2
+
+    @patch.object(HardwareReader, "_run_vcgencmd")
+    @patch.object(HardwareReader, "_parse_vcgencmd_voltage")
+    def test_get_core_voltage(self, mock_parse: MagicMock, mock_run: MagicMock) -> None:
+        """Test get_core_voltage."""
+        mock_run.return_value = "volt=1.2000V"
+        mock_parse.return_value = 1.2
+        reader = HardwareReader()
+        result = reader.get_core_voltage()
+        mock_run.assert_called_with("measure_volts Core")
+        assert result == 1.2
+
+    @patch.object(HardwareReader, "_run_vcgencmd")
+    @patch.object(HardwareReader, "_parse_throttled")
+    def test_get_throttled(self, mock_parse: MagicMock, mock_run: MagicMock) -> None:
+        """Test get_throttled."""
+        mock_run.return_value = "throttled=0x0"
+        mock_parse.return_value = (0, "normal")
+        reader = HardwareReader()
+        result = reader.get_throttled()
+        mock_run.assert_called_with("get_throttled")
+        assert result == (0, "normal")
+
+
+class TestParseVoltageMalformed:
+    """Test malformed voltage parsing."""
+
+    def test_parse_malformed_voltage(self) -> None:
+        """Test parsing malformed voltage returns None."""
+        reader = HardwareReader()
+        voltage = reader._parse_vcgencmd_voltage("error reading voltage")
+        assert voltage is None
+
+
+class TestThrottleBitParsing:
+    """Test individual throttle bit parsing."""
+
+    def test_parse_freq_capped_occurred(self) -> None:
+        """Test parsing freq-capped-occurred flag."""
+        reader = HardwareReader()
+        output = "throttled=0x20000"  # Bit 17
+        bitmask, status = reader._parse_throttled(output)
+        assert "freq-capped-occurred" in status
+
+    def test_parse_temp_limit_occurred(self) -> None:
+        """Test parsing temp-limit-occurred flag."""
+        reader = HardwareReader()
+        output = "throttled=0x80000"  # Bit 19
+        bitmask, status = reader._parse_throttled(output)
+        assert "temp-limit-occurred" in status
+
+    def test_parse_all_flags(self) -> None:
+        """Test parsing all flags set."""
+        reader = HardwareReader()
+        output = "throttled=0xf000f"  # All bits
+        bitmask, status = reader._parse_throttled(output)
+        assert "under-voltage" in status
+        assert "freq-capped" in status
+        assert "throttled" in status
+        assert "temp-limit" in status
+        assert "uv-occurred" in status
+        assert "freq-capped-occurred" in status
+        assert "throttling-occurred" in status
+        assert "temp-limit-occurred" in status
 
 
 class TestGetAllMetrics:

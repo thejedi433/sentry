@@ -48,8 +48,8 @@ def status() -> None:
     click.echo(f"Timestamp:        {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(metrics.timestamp))}")
 
     # Store reading
-    db = Database()
-    db.store_reading(metrics)
+    with Database() as db:
+        db.store_reading(metrics)
 
 
 @main.command()
@@ -61,50 +61,50 @@ def monitor(interval: int) -> None:
     Press Ctrl+C to exit.
     """
     reader = HardwareReader()
-    db = Database()
 
     click.echo(f"Starting continuous monitoring (interval: {interval}s)")
     click.echo("Press Ctrl+C to exit\n")
 
     try:
-        while True:
-            # Clear screen and move cursor to top-left
-            click.clear()
+        with Database() as db:
+            while True:
+                # Clear screen and move cursor to top-left
+                click.clear()
 
-            try:
-                metrics = reader.get_all_metrics()
-            except OSError:
-                click.echo("Error: Unable to read hardware metrics")
-                click.echo("Note: sentry is designed for Raspberry Pi devices.")
+                try:
+                    metrics = reader.get_all_metrics()
+                except OSError:
+                    click.echo("Error: Unable to read hardware metrics")
+                    click.echo("Note: sentry is designed for Raspberry Pi devices.")
+                    time.sleep(interval)
+                    continue
+
+                # Store reading
+                db.store_reading(metrics)
+
+                # Check for alerts
+                config = Config.load()
+                alert_mgr = AlertManager(config)
+                alerts = alert_mgr.check_thresholds(metrics)
+
+                # Display metrics
+                click.echo("=== Sentry Monitor ===")
+                click.echo(f"CPU Temperature:  {metrics.cpu_temp:.1f}°C")
+                click.echo(f"GPU Temperature:  {metrics.gpu_temp:.1f}°C")
+                click.echo(f"ARM Voltage:      {metrics.arm_voltage:.2f}V")
+                click.echo(f"Core Voltage:     {metrics.core_voltage:.2f}V")
+                click.echo(f"Throttled:        {metrics.throttle_status}")
+                click.echo(f"Last update:      {time.strftime('%H:%M:%S')}")
+                click.echo()
+
+                if alerts:
+                    click.echo(click.style("⚠ ALERTS:", fg="red"))
+                    for alert in alerts:
+                        click.echo(click.style(f"  • {alert}", fg="red"))
+                else:
+                    click.echo(click.style("✓ All metrics normal", fg="green"))
+
                 time.sleep(interval)
-                continue
-
-            # Store reading
-            db.store_reading(metrics)
-
-            # Check for alerts
-            config = Config.load()
-            alert_mgr = AlertManager(config)
-            alerts = alert_mgr.check_thresholds(metrics)
-
-            # Display metrics
-            click.echo("=== Sentry Monitor ===")
-            click.echo(f"CPU Temperature:  {metrics.cpu_temp:.1f}°C")
-            click.echo(f"GPU Temperature:  {metrics.gpu_temp:.1f}°C")
-            click.echo(f"ARM Voltage:      {metrics.arm_voltage:.2f}V")
-            click.echo(f"Core Voltage:     {metrics.core_voltage:.2f}V")
-            click.echo(f"Throttled:        {metrics.throttle_status}")
-            click.echo(f"Last update:      {time.strftime('%H:%M:%S')}")
-            click.echo()
-
-            if alerts:
-                click.echo(click.style("⚠ ALERTS:", fg="red"))
-                for alert in alerts:
-                    click.echo(click.style(f"  • {alert}", fg="red"))
-            else:
-                click.echo(click.style("✓ All metrics normal", fg="green"))
-
-            time.sleep(interval)
 
     except KeyboardInterrupt:
         click.echo("\nMonitoring stopped.")
@@ -134,6 +134,57 @@ def alerts(limit: int, clear: bool) -> None:
         click.echo(f"=== Recent Alerts (last {len(recent)}) ===")
         for alert in recent:
             click.echo(alert)
+
+
+@main.command()
+@click.option("--limit", "-l", default=10, help="Number of readings to show")
+@click.option("--minutes", "-m", type=int, help="Only show readings from last N minutes")
+def history(limit: int, minutes: Optional[int]) -> None:
+    """Show historical readings.
+
+    Displays recent hardware metrics stored in the database.
+    """
+    with Database() as db:
+        readings = db.get_recent_readings(limit=limit, minutes=minutes)
+
+    if not readings:
+        click.echo("No historical readings found.")
+        return
+
+    click.echo(f"=== Historical Readings (last {len(readings)}) ===")
+    for reading in readings:
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(reading.timestamp))
+        click.echo(f"\n{timestamp}")
+        click.echo(f"  CPU: {reading.cpu_temp:.1f}°C  GPU: {reading.gpu_temp:.1f}°C")
+        click.echo(f"  ARM: {reading.arm_voltage:.2f}V  Core: {reading.core_voltage:.2f}V")
+        click.echo(f"  Status: {reading.throttle_status}")
+
+
+@main.command()
+@click.option("--minutes", "-m", default=60, help="Time window in minutes")
+def stats(minutes: int) -> None:
+    """Show statistics for recent readings.
+
+    Displays min/max/avg for each metric over the specified time window.
+    """
+    with Database() as db:
+        stats_data = db.get_stats(minutes=minutes)
+        total = db.count_readings()
+
+    click.echo(f"=== Statistics (last {minutes} minutes) ===")
+
+    for metric_name, values in stats_data.items():
+        if values["min"] is None:
+            click.echo(f"\n{metric_name}: No data available")
+        else:
+            unit = "°C" if "temp" in metric_name else "V"
+            precision = ".1f" if "temp" in metric_name else ".2f"
+            click.echo(f"\n{metric_name}:")
+            click.echo(f"  Min: {values['min']:{precision}}{unit}")
+            click.echo(f"  Max: {values['max']:{precision}}{unit}")
+            click.echo(f"  Avg: {values['avg']:{precision}}{unit}")
+
+    click.echo(f"\nTotal readings in database: {total}")
 
 
 @main.command()

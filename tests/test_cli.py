@@ -80,6 +80,57 @@ class TestCliMonitor:
         # Should have started and shown metrics before exit
         assert "Starting continuous monitoring" in result.output or "CPU Temperature" in result.output
 
+    @patch("sentry.cli.time.sleep")
+    @patch("sentry.cli.HardwareReader")
+    @patch("sentry.cli.Database")
+    @patch("sentry.cli.AlertManager")
+    @patch("sentry.cli.Config")
+    def test_monitor_with_alerts(
+        self,
+        mock_config: MagicMock,
+        mock_alert_mgr: MagicMock,
+        mock_db: MagicMock,
+        mock_reader: MagicMock,
+        mock_sleep: MagicMock,
+    ) -> None:
+        """Test monitor command with alerts displayed."""
+        mock_metrics = MagicMock()
+        mock_metrics.cpu_temp = 85.0
+        mock_metrics.gpu_temp = 50.0
+        mock_metrics.arm_voltage = 1.2
+        mock_metrics.core_voltage = 1.2
+        mock_metrics.throttled = 0
+        mock_metrics.throttle_status = "normal"
+        mock_metrics.timestamp = 1000000.0
+
+        mock_reader.return_value.get_all_metrics.return_value = mock_metrics
+        mock_alert_mgr.return_value.check_thresholds.return_value = [
+            "HIGH_CPU_TEMP: CPU temperature 85.0°C exceeds threshold 70°C"
+        ]
+        # Make sleep raise KeyboardInterrupt after one iteration
+        mock_sleep.side_effect = KeyboardInterrupt
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["monitor", "--interval", "1"])
+
+        assert "ALERTS" in result.output or "HIGH_CPU_TEMP" in result.output
+
+    @patch("sentry.cli.time.sleep")
+    @patch("sentry.cli.HardwareReader")
+    @patch("sentry.cli.Database")
+    def test_monitor_hardware_error(
+        self, mock_db: MagicMock, mock_reader: MagicMock, mock_sleep: MagicMock
+    ) -> None:
+        """Test monitor command with hardware read error."""
+        mock_reader.return_value.get_all_metrics.side_effect = OSError("no hardware")
+        # Make sleep raise KeyboardInterrupt after error display
+        mock_sleep.side_effect = KeyboardInterrupt
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["monitor", "--interval", "1"])
+
+        assert "Error" in result.output or "Unable to read" in result.output
+
 
 class TestCliAlerts:
     """Test alerts command."""
@@ -152,6 +203,84 @@ class TestCliConfig:
         mock_cfg.config_path.__str__ = lambda self: "/test/config.toml"
         mock_cfg.validate.return_value = []
         mock_config.load.return_value = mock_cfg
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["config", "--cpu-temp", "75.0"])
+
+        assert result.exit_code == 0
+        assert "Configuration saved" in result.output
+
+    @patch("sentry.cli.Config")
+    def test_config_set_gpu_temp(self, mock_config: MagicMock) -> None:
+        """Test setting GPU temperature threshold."""
+        mock_cfg = MagicMock()
+        mock_cfg.config_path = MagicMock()
+        mock_cfg.config_path.__str__ = lambda self: "/test/config.toml"
+        mock_cfg.validate.return_value = []
+        mock_config.load.return_value = mock_cfg
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["config", "--gpu-temp", "80.0"])
+
+        assert result.exit_code == 0
+        assert "Configuration saved" in result.output
+
+    @patch("sentry.cli.Config")
+    def test_config_set_arm_voltage(self, mock_config: MagicMock) -> None:
+        """Test setting ARM voltage threshold."""
+        mock_cfg = MagicMock()
+        mock_cfg.config_path = MagicMock()
+        mock_cfg.config_path.__str__ = lambda self: "/test/config.toml"
+        mock_cfg.validate.return_value = []
+        mock_config.load.return_value = mock_cfg
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["config", "--arm-voltage", "1.15"])
+
+        assert result.exit_code == 0
+        assert "Configuration saved" in result.output
+
+    @patch("sentry.cli.Config")
+    def test_config_set_core_voltage(self, mock_config: MagicMock) -> None:
+        """Test setting core voltage threshold."""
+        mock_cfg = MagicMock()
+        mock_cfg.config_path = MagicMock()
+        mock_cfg.config_path.__str__ = lambda self: "/test/config.toml"
+        mock_cfg.validate.return_value = []
+        mock_config.load.return_value = mock_cfg
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["config", "--core-voltage", "1.25"])
+
+        assert result.exit_code == 0
+        assert "Configuration saved" in result.output
+
+    @patch("sentry.cli.Config")
+    def test_config_show_load_error(self, mock_config: MagicMock) -> None:
+        """Test config show command with load error."""
+        from sentry.config import ConfigError
+        mock_config.load.side_effect = ConfigError("Invalid config")
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["config", "--show"])
+
+        assert result.exit_code == 1
+        assert "Error loading config" in result.output
+
+    @patch("sentry.cli.Config")
+    def test_config_set_load_error_fallback(self, mock_config: MagicMock) -> None:
+        """Test config set command falls back to new Config on load error."""
+        from sentry.config import ConfigError
+        
+        # First call to Config.load() raises error
+        mock_config.load.side_effect = ConfigError("Invalid config")
+        
+        # When Config() is called as constructor, return a mock
+        mock_fallback_cfg = MagicMock()
+        mock_fallback_cfg.config_path = MagicMock()
+        mock_fallback_cfg.config_path.__str__ = lambda self: "/test/config.toml"
+        mock_fallback_cfg.validate.return_value = []
+        mock_config.return_value = mock_fallback_cfg
 
         runner = CliRunner()
         result = runner.invoke(main, ["config", "--cpu-temp", "75.0"])

@@ -9,6 +9,7 @@ import sqlite3
 import tempfile
 import time
 from pathlib import Path
+from typing import Generator
 
 import pytest
 
@@ -17,12 +18,12 @@ from sentry.storage import Database
 
 
 @pytest.fixture
-def temp_db() -> Database:
+def temp_db() -> Generator[Database, None, None]:
     """Create a temporary database for testing."""
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = Path(tmpdir) / "test.db"
-        db = Database(db_path)
-        yield db
+        with Database(db_path) as db:
+            yield db
 
 
 @pytest.fixture
@@ -53,6 +54,7 @@ class TestDatabaseInit:
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='readings'"
             )
             assert cursor.fetchone() is not None
+            conn.commit()
 
     def test_init_creates_index(self, temp_db: Database) -> None:
         """Test timestamp index is created."""
@@ -61,11 +63,13 @@ class TestDatabaseInit:
                 "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_readings_timestamp'"
             )
             assert cursor.fetchone() is not None
+            conn.commit()
 
     def test_default_path(self) -> None:
         """Test default database path."""
         db = Database()
         assert db.db_path == Path.home() / ".local" / "share" / "sentry" / "history.db"
+        db.close()
 
 
 class TestStoreReading:
@@ -104,6 +108,7 @@ class TestStoreReading:
             assert row["core_voltage"] == 1.2
             assert row["throttled"] == 0
             assert row["throttle_status"] == "normal"
+            conn.commit()
 
 
 class TestGetRecentReadings:
@@ -266,3 +271,71 @@ class TestClearOldReadings:
 
         count = temp_db.count_readings()
         assert count == 0
+
+
+class TestResourceManagement:
+    """Test proper resource cleanup to avoid warnings."""
+
+    def test_database_close_method(self, sample_metrics: HardwareMetrics) -> None:
+        """Test Database has close method that properly closes connections."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+            db = Database(db_path)
+            
+            # Store some data
+            db.store_reading(sample_metrics)
+            
+            # Close should not raise
+            db.close()
+            
+            # After close, operations should either work (reopen) or fail gracefully
+            # For now, just verify close() exists and is callable
+            assert hasattr(db, 'close')
+
+    def test_database_context_manager(self, sample_metrics: HardwareMetrics) -> None:
+        """Test Database can be used as context manager."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+            
+            # Should be able to use with statement
+            with Database(db_path) as db:
+                db.store_reading(sample_metrics)
+                count = db.count_readings()
+                assert count == 1
+            
+            # After exiting context, database should be properly closed
+            # Verify we can reopen it (no locks or corruption)
+            db2 = Database(db_path)
+            count = db2.count_readings()
+            assert count == 1
+            db2.close()
+
+    def test_no_resource_warnings_on_multiple_operations(
+        self, sample_metrics: HardwareMetrics
+    ) -> None:
+        """Test that multiple operations don't leak resources."""
+        import warnings
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+            
+            # Capture warnings
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter("always")
+                
+                with Database(db_path) as db:
+                    # Multiple operations
+                    for _ in range(5):
+                        db.store_reading(sample_metrics)
+                    
+                    db.get_recent_readings()
+                    db.get_stats()
+                    db.count_readings()
+                
+                # Check for ResourceWarning
+                resource_warnings = [
+                    warning for warning in w 
+                    if issubclass(warning.category, ResourceWarning)
+                ]
+                assert len(resource_warnings) == 0, \
+                    f"Found {len(resource_warnings)} ResourceWarnings"
