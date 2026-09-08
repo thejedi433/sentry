@@ -15,5 +15,7 @@ src/sentry.egg-info/top_level.txt
 tests/test_alerts.py
 tests/test_cli.py
 tests/test_config.py
+tests/test_coverage_gaps.py
 tests/test_hardware.py
+tests/test_history_stats.py
 tests/test_storage.py
