@@ -55,6 +55,7 @@ class TestDatabaseInit:
             )
             assert cursor.fetchone() is not None
             conn.commit()
+        conn.close()
 
     def test_init_creates_index(self, temp_db: Database) -> None:
         """Test timestamp index is created."""
@@ -67,9 +68,13 @@ class TestDatabaseInit:
 
     def test_default_path(self) -> None:
         """Test default database path."""
-        db = Database()
-        assert db.db_path == Path.home() / ".local" / "share" / "sentry" / "history.db"
-        db.close()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / ".local" / "share" / "sentry" / "history.db"
+            from unittest.mock import patch
+            with patch("sentry.storage.Path.home", return_value=Path(tmpdir)):
+                db = Database()
+                assert db.db_path == Path(tmpdir) / ".local" / "share" / "sentry" / "history.db"
+                db.close()
 
 
 class TestStoreReading:
@@ -291,6 +296,8 @@ class TestResourceManagement:
             # After close, operations should either work (reopen) or fail gracefully
             # For now, just verify close() exists and is callable
             assert hasattr(db, 'close')
+            # Explicitly verify no unclosed connection
+            assert db._conn is None
 
     def test_database_context_manager(self, sample_metrics: HardwareMetrics) -> None:
         """Test Database can be used as context manager."""

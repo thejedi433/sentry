@@ -30,6 +30,8 @@ class Database:
         if db_path is None:
             db_path = Path.home() / ".local" / "share" / "sentry" / "history.db"
         self.db_path = db_path
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._conn: Optional[sqlite3.Connection] = sqlite3.connect(str(db_path))
         self._init_db()
 
     def __enter__(self) -> "Database":
@@ -41,200 +43,143 @@ class Database:
         self.close()
 
     def close(self) -> None:
-        """Close the database connection.
-
-        This is a no-op for this implementation since connections are
-        opened and closed per-operation, but provides a clean API for
-        resource management and context manager support.
-        """
-        # Connections are managed per-operation with `with` statements,
-        # so this is intentionally a no-op. It exists to provide a
-        # consistent API and context manager support.
-        pass
+        """Close the database connection."""
+        if self._conn is not None:
+            self._conn.close()
+            self._conn = None
 
     def _init_db(self) -> None:
         """Initialize database schema."""
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS readings (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp REAL NOT NULL,
-                    cpu_temp REAL,
-                    gpu_temp REAL,
-                    arm_voltage REAL,
-                    core_voltage REAL,
-                    throttled INTEGER,
-                    throttle_status TEXT
-                )
+        assert self._conn is not None
+        self._conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS readings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp REAL NOT NULL,
+                cpu_temp REAL,
+                gpu_temp REAL,
+                arm_voltage REAL,
+                core_voltage REAL,
+                throttled INTEGER,
+                throttle_status TEXT
             )
-            conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_readings_timestamp
-                ON readings(timestamp)
+        """
+        )
+        self._conn.execute(
             """
-            )
-            conn.commit()
+            CREATE INDEX IF NOT EXISTS idx_readings_timestamp
+            ON readings(timestamp)
+        """
+        )
+        self._conn.commit()
 
     def store_reading(self, metrics: HardwareMetrics) -> int:
-        """Store a hardware metrics reading.
-
-        Args:
-            metrics: HardwareMetrics instance to store.
-
-        Returns:
-            The ID of the inserted row.
-        """
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute(
-                """
-                INSERT INTO readings
-                (timestamp, cpu_temp, gpu_temp, arm_voltage, core_voltage,
-                 throttled, throttle_status)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    metrics.timestamp,
-                    metrics.cpu_temp,
-                    metrics.gpu_temp,
-                    metrics.arm_voltage,
-                    metrics.core_voltage,
-                    metrics.throttled,
-                    metrics.throttle_status,
-                ),
-            )
-            conn.commit()
-            return cursor.lastrowid
+        """Store a hardware metrics reading."""
+        assert self._conn is not None
+        cursor = self._conn.execute(
+            """
+            INSERT INTO readings
+            (timestamp, cpu_temp, gpu_temp, arm_voltage, core_voltage,
+             throttled, throttle_status)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+            (
+                metrics.timestamp,
+                metrics.cpu_temp,
+                metrics.gpu_temp,
+                metrics.arm_voltage,
+                metrics.core_voltage,
+                metrics.throttled,
+                metrics.throttle_status,
+            ),
+        )
+        self._conn.commit()
+        return cursor.lastrowid
 
     def get_recent_readings(
         self, limit: int = 10, minutes: Optional[int] = None
     ) -> list[HardwareMetrics]:
-        """Get recent hardware readings.
-
-        Args:
-            limit: Maximum number of readings to return.
-            minutes: Only return readings from the last N minutes.
-
-        Returns:
-            List of HardwareMetrics instances, newest first.
-        """
+        """Get recent hardware readings."""
         import time
 
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            query = "SELECT * FROM readings"
-            conditions = []
-            params = []
+        assert self._conn is not None
+        self._conn.row_factory = sqlite3.Row
+        query = "SELECT * FROM readings"
+        conditions = []
+        params = []
 
-            if minutes is not None:
-                cutoff = time.time() - (minutes * 60)
-                conditions.append("timestamp >= ?")
-                params.append(cutoff)
+        if minutes is not None:
+            cutoff = time.time() - (minutes * 60)
+            conditions.append("timestamp >= ?")
+            params.append(cutoff)
 
-            if conditions:
-                query += " WHERE " + " AND ".join(conditions)
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
 
-            query += " ORDER BY timestamp DESC LIMIT ?"
-            params.append(limit)
+        query += " ORDER BY timestamp DESC LIMIT ?"
+        params.append(limit)
 
-            cursor = conn.execute(query, params)
-            rows = cursor.fetchall()
+        cursor = self._conn.execute(query, params)
+        rows = cursor.fetchall()
 
-            return [
-                HardwareMetrics(
-                    timestamp=row["timestamp"],
-                    cpu_temp=row["cpu_temp"] or 0.0,
-                    gpu_temp=row["gpu_temp"] or 0.0,
-                    arm_voltage=row["arm_voltage"] or 0.0,
-                    core_voltage=row["core_voltage"] or 0.0,
-                    throttled=row["throttled"] or 0,
-                    throttle_status=row["throttle_status"] or "unknown",
-                )
-                for row in rows
-            ]
+        return [
+            HardwareMetrics(
+                timestamp=row["timestamp"],
+                cpu_temp=row["cpu_temp"] or 0.0,
+                gpu_temp=row["gpu_temp"] or 0.0,
+                arm_voltage=row["arm_voltage"] or 0.0,
+                core_voltage=row["core_voltage"] or 0.0,
+                throttled=row["throttled"] or 0,
+                throttle_status=row["throttle_status"] or "unknown",
+            )
+            for row in rows
+        ]
 
     def get_stats(
         self, minutes: int = 60
     ) -> dict[str, dict[str, Optional[float]]]:
-        """Get statistics for recent readings.
-
-        Args:
-            minutes: Time window in minutes.
-
-        Returns:
-            Dictionary with min/max/avg for each metric.
-        """
+        """Get statistics for recent readings."""
         import time
 
+        assert self._conn is not None
         cutoff = time.time() - (minutes * 60)
 
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute(
-                """
-                SELECT
-                    MIN(cpu_temp) as cpu_min, MAX(cpu_temp) as cpu_max, AVG(cpu_temp) as cpu_avg,
-                    MIN(gpu_temp) as gpu_min, MAX(gpu_temp) as gpu_max, AVG(gpu_temp) as gpu_avg,
-                    MIN(arm_voltage) as arm_min, MAX(arm_voltage) as arm_max, AVG(arm_voltage) as arm_avg,
-                    MIN(core_voltage) as core_min, MAX(core_voltage) as core_max, AVG(core_voltage) as core_avg
-                FROM readings
-                WHERE timestamp >= ?
-            """,
-                (cutoff,),
-            )
-            row = cursor.fetchone()
+        cursor = self._conn.execute(
+            """
+            SELECT
+                MIN(cpu_temp) as cpu_min, MAX(cpu_temp) as cpu_max, AVG(cpu_temp) as cpu_avg,
+                MIN(gpu_temp) as gpu_min, MAX(gpu_temp) as gpu_max, AVG(gpu_temp) as gpu_avg,
+                MIN(arm_voltage) as arm_min, MAX(arm_voltage) as arm_max, AVG(arm_voltage) as arm_avg,
+                MIN(core_voltage) as core_min, MAX(core_voltage) as core_max, AVG(core_voltage) as core_avg
+            FROM readings
+            WHERE timestamp >= ?
+        """,
+            (cutoff,),
+        )
+        row = cursor.fetchone()
 
-            return {
-                "cpu_temp": {
-                    "min": row[0],
-                    "max": row[1],
-                    "avg": row[2],
-                },
-                "gpu_temp": {
-                    "min": row[3],
-                    "max": row[4],
-                    "avg": row[5],
-                },
-                "arm_voltage": {
-                    "min": row[6],
-                    "max": row[7],
-                    "avg": row[8],
-                },
-                "core_voltage": {
-                    "min": row[9],
-                    "max": row[10],
-                    "avg": row[11],
-                },
-            }
+        return {
+            "cpu_temp": {"min": row[0], "max": row[1], "avg": row[2]},
+            "gpu_temp": {"min": row[3], "max": row[4], "avg": row[5]},
+            "arm_voltage": {"min": row[6], "max": row[7], "avg": row[8]},
+            "core_voltage": {"min": row[9], "max": row[10], "avg": row[11]},
+        }
 
     def count_readings(self) -> int:
-        """Get total number of readings in database.
-
-        Returns:
-            Count of readings.
-        """
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute("SELECT COUNT(*) FROM readings")
-            return cursor.fetchone()[0]
+        """Get total number of readings in database."""
+        assert self._conn is not None
+        cursor = self._conn.execute("SELECT COUNT(*) FROM readings")
+        return cursor.fetchone()[0]
 
     def clear_old_readings(self, days: int = 7) -> int:
-        """Delete readings older than specified days.
-
-        Args:
-            days: Number of days to keep.
-
-        Returns:
-            Number of rows deleted.
-        """
+        """Delete readings older than specified days."""
         import time
 
+        assert self._conn is not None
         cutoff = time.time() - (days * 24 * 60 * 60)
 
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute(
-                "DELETE FROM readings WHERE timestamp < ?", (cutoff,)
-            )
-            conn.commit()
-            return cursor.rowcount
+        cursor = self._conn.execute(
+            "DELETE FROM readings WHERE timestamp < ?", (cutoff,)
+        )
+        self._conn.commit()
+        return cursor.rowcount
