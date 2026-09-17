@@ -49,22 +49,27 @@ class TestDatabaseInit:
 
     def test_init_creates_table(self, temp_db: Database) -> None:
         """Test readings table is created."""
-        with sqlite3.connect(temp_db.db_path) as conn:
+        conn = sqlite3.connect(temp_db.db_path)
+        try:
             cursor = conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='readings'"
             )
             assert cursor.fetchone() is not None
             conn.commit()
-        conn.close()
+        finally:
+            conn.close()
 
     def test_init_creates_index(self, temp_db: Database) -> None:
         """Test timestamp index is created."""
-        with sqlite3.connect(temp_db.db_path) as conn:
+        conn = sqlite3.connect(temp_db.db_path)
+        try:
             cursor = conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_readings_timestamp'"
             )
             assert cursor.fetchone() is not None
             conn.commit()
+        finally:
+            conn.close()
 
     def test_default_path(self) -> None:
         """Test default database path."""
@@ -102,7 +107,8 @@ class TestStoreReading:
         """Test stored values are correct."""
         temp_db.store_reading(sample_metrics)
 
-        with sqlite3.connect(temp_db.db_path) as conn:
+        conn = sqlite3.connect(temp_db.db_path)
+        try:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("SELECT * FROM readings")
             row = cursor.fetchone()
@@ -114,6 +120,8 @@ class TestStoreReading:
             assert row["throttled"] == 0
             assert row["throttle_status"] == "normal"
             conn.commit()
+        finally:
+            conn.close()
 
 
 class TestGetRecentReadings:
