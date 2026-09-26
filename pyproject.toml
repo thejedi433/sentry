@@ -39,3 +39,6 @@ where = ["src"]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = "-v --cov=sentry --cov-report=term-missing"
+
+[tool.coverage.run]
+omit = ["src/sentry/__main__.py"]

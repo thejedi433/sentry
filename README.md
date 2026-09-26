@@ -180,6 +180,7 @@ pytest --cov=sentry --cov-report=html
 sentry/
 ├── src/sentry/
 │   ├── __init__.py      # Package exports
+│   ├── __main__.py      # python -m support
 │   ├── hardware.py      # Hardware metrics reader
 │   ├── storage.py       # SQLite database operations
 │   ├── config.py        # Configuration management
@@ -190,7 +191,8 @@ sentry/
 │   ├── test_storage.py
 │   ├── test_config.py
 │   ├── test_alerts.py
-│   └── test_cli.py
+│   ├── test_cli.py
+│   └── test_main.py
 ├── .github/workflows/
 │   └── ci.yml           # GitHub Actions CI
 ├── Dockerfile           # Optional Docker build
