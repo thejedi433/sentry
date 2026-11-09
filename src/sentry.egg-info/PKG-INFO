@@ -12,11 +12,11 @@ Classifier: Programming Language :: Python :: 3.12
 Classifier: Programming Language :: Python :: 3.13
 Requires-Python: >=3.11
 Description-Content-Type: text/markdown
-Requires-Dist: click>=8.0
+Requires-Dist: click>=8.5.0
 Requires-Dist: tomli>=2.0; python_version < "3.11"
 Provides-Extra: dev
-Requires-Dist: pytest>=7.0; extra == "dev"
-Requires-Dist: pytest-cov>=4.0; extra == "dev"
+Requires-Dist: pytest>=9.2.0; extra == "dev"
+Requires-Dist: pytest-cov>=7.1.0; extra == "dev"
 
 # sentry
 
@@ -200,6 +200,7 @@ pytest --cov=sentry --cov-report=html
 sentry/
 ├── src/sentry/
 │   ├── __init__.py      # Package exports
+│   ├── __main__.py      # python -m support
 │   ├── hardware.py      # Hardware metrics reader
 │   ├── storage.py       # SQLite database operations
 │   ├── config.py        # Configuration management
@@ -210,7 +211,8 @@ sentry/
 │   ├── test_storage.py
 │   ├── test_config.py
 │   ├── test_alerts.py
-│   └── test_cli.py
+│   ├── test_cli.py
+│   └── test_main.py
 ├── .github/workflows/
 │   └── ci.yml           # GitHub Actions CI
 ├── Dockerfile           # Optional Docker build
